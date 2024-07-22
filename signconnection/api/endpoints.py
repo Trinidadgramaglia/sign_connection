@@ -4,64 +4,93 @@ from fastapi.middleware.cors import CORSMiddleware
 # import torch
 # from datetime import datetime
 # import pytz
-
+import tensorflow as tf
+import os
+import subprocess
 from signconnection.ml_logic.registry import load_model
-from signconnection.ml_logic.preprocessor import preprocess_features
+from signconnection.ml_logic.preprocessor import preprocess_features, cortar_bordes
+import numpy as np
+
+path = '../modelv2'
 
 app = FastAPI()
-app.state.model = load_model()
+# app.state.model = load_model()
+
+loaded_model = tf.saved_model.load(path)
 
 # Allowing all middleware is optional, but good practice for dev purposes
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],  # Permite todas las orígenes
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
+TEMP_DIR = os.path.join(os.path.dirname(__file__), 'tmp')
+if not os.path.exists(TEMP_DIR):
+    os.makedirs(TEMP_DIR)
+
 @app.post("/predict")
-def predict(video: UploadFile = File(...)):
+async def predict(video: UploadFile = File(...)):
     """
     Realiza una predicción de lenguaje de señas a partir de un video.
     """
-    return {
-        'greeting': 'Predict'
-    }
-    # try:
-    #     # Guardar el archivo de video temporalmente
-    #     video_path = f'tmp/{video.filename}'
-    #     with open(video_path, 'wb') as buffer:
-    #         buffer.write(video.file.read())
+    try:
+        # Guardar el archivo temporalmente
+        video_path = os.path.join(TEMP_DIR, video.filename)
+        with open(video_path, 'wb') as buffer:
+            buffer.write(await video.read())
 
-    #     # Preprocesar el video
-    #     video_tensor = preprocess_features(video_path)
-    #     video_tensor = video_tensor.to('cuda' if torch.cuda.is_available() else 'cpu')
+        # Imprimir los detalles del archivo en la consola
+        print(f"Nombre del archivo: {video.filename}")
+        print(f"Tipo de archivo: {video.content_type}")
 
-    #     # Realizar la predicción
-    #     with torch.no_grad():
-    #         outputs = app.state.model(video_tensor)
-    #         predicted_class = torch.argmax(outputs, dim=1).item()
+        # Convertir el archivo de WebM a MP4 usando ffmpeg si es necesario
+        if video.content_type == "video/webm":
+            mp4_path = video_path.replace('.webm', '.mp4')
+            command = ['ffmpeg', '-i', video_path, mp4_path]
+            subprocess.run(command, check=True)
+            # Eliminar el archivo webm original
+            os.remove(video_path)
+            # Actualizar video_path para apuntar al archivo convertido
+            video_path = mp4_path
 
-    #     # Mapear la clase predicha al nombre de la seña
-    #     sign_dict = {
-    #         '013': 'Lejos', '022': 'Agua', '023': 'Comida', '028': 'Donde',
-    #         '033': 'Hambre', '039': 'Nombre', '051': 'Gracias', '056': 'Ayuda',
-    #         '063': 'Dar', '064': 'Recibir'
-    #     }
-    #     index_to_label = {index: label for index, label in enumerate(sign_dict.values())}
-    #     predicted_label = index_to_label[predicted_class]
+        # Leer el contenido del archivo convertido para obtener su tamaño real
+        with open(video_path, 'rb') as f:
+            content = f.read()
+        print(f"Tamaño real del archivo: {len(content)} bytes")
 
-    #     return {
-    #         'predicted_class': predicted_class,
-    #         'predicted_label': predicted_label
-    #     }
+        # Preprocesar el video
+        video_tensor = preprocess_features(video_path)
+        if video_tensor is None:
+            raise HTTPException(status_code=500, detail="Error al preprocesar el video")
 
-    # except Exception as e:
-    #     raise HTTPException(status_code=500, detail=str(e)) from e
+        # Imprimir el tensor preprocesado en la consola para verificar
+        print('video path:', video_path)
+        print('Preprocesado:', video_tensor.shape)
+        labels= ['Lejos','Agua','Comida','Donde','Hambre','Nombre','Gracias','Ayuda','Dar','Recibir']
+
+
+        y_pred = loaded_model.serve(video_tensor)
+        y_pred_enc = np.argmax(y_pred, axis=1)
+        predict = labels[y_pred_enc[0]]
+        print('prediccion', predict)
+
+        return {"message": "recibido ok"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # finally:
+    #     if os.path.exists(video_path):
+    #         os.remove(video_path)
+
+
+
 
 @app.get("/")
 def root():
     return {
-        'greeting': 'Hello'
+        'greeting': 'Hello!!'
     }

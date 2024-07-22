@@ -1,8 +1,6 @@
 from fastapi import FastAPI
-from signconnection.api.endpoints import predict, root
+from signconnection.api.endpoints import app as endpoints_app
 
 app = FastAPI()
 
-# app.add_api_route("/predict", predict, methods=["POST"])
-app.add_api_route("/predict", predict, methods=["GET"])
-app.add_api_route("/", root, methods=["GET"])
+app.mount("/", endpoints_app)
