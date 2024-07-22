@@ -1,21 +1,15 @@
 import pandas as pd
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-# import torch
-# from datetime import datetime
-# import pytz
 import tensorflow as tf
 import os
 import subprocess
-from signconnection.ml_logic.registry import load_model
-from signconnection.ml_logic.preprocessor import preprocess_features, cortar_bordes
+from signconnection.ml_logic.preprocessor import preprocess_features
 import numpy as np
 
-path = '../modelv2'
+path = 'modelv2'
 
 app = FastAPI()
-# app.state.model = load_model()
-
 loaded_model = tf.saved_model.load(path)
 
 # Allowing all middleware is optional, but good practice for dev purposes
@@ -31,6 +25,8 @@ TEMP_DIR = os.path.join(os.path.dirname(__file__), 'tmp')
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
 
+
+print(path)
 @app.post("/predict")
 async def predict(video: UploadFile = File(...)):
     """
@@ -77,14 +73,14 @@ async def predict(video: UploadFile = File(...)):
         predict = labels[y_pred_enc[0]]
         print('prediccion', predict)
 
-        return {"message": "recibido ok"}
+        return {"message": predict}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # finally:
-    #     if os.path.exists(video_path):
-    #         os.remove(video_path)
+    finally:
+        if os.path.exists(video_path):
+            os.remove(video_path)
 
 
 
